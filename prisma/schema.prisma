@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LinkedEntityType {
+  Idea
+  RoutineExperiment
+  Study
+  Other
+}
+
+enum ExperimentStatus {
+  planned
+  running
+  complete
+}
+
+enum MacroTargetMetricType {
+  count
+  money
+  custom
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  timezone  String   @default("America/Chicago")
+  currency  String   @default("USD")
+  defaultStartDuration Int @default(10)
+
+  accounts  Account[]
+  sessions  Session[]
+  macroGoals MacroGoal[]
+  startEvents StartEvent[]
+  studySessions StudySession[]
+  cashSnapshots CashSnapshot[]
+  ideas Idea[]
+  actions Action[]
+  routineExperiments RoutineExperiment[]
+  reminders Reminder[]
+}
+
+model MacroGoal {
+  id               String   @id @default(cuid())
+  userId           String
+  title            String
+  description      String?
+  targetMetricType MacroTargetMetricType @default(count)
+  targetValue      Float?
+  isActive         Boolean @default(true)
+  notes            String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ideas Idea[]
+}
+
+model StartEvent {
+  id                String            @id @default(cuid())
+  userId            String
+  timestamp         DateTime          @default(now())
+  durationSec       Int
+  context           String?
+  linkedEntityType  LinkedEntityType?
+  linkedEntityId    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StudySession {
+  id       String   @id @default(cuid())
+  userId   String
+  startAt  DateTime
+  endAt    DateTime
+  minutes  Int
+  topic    String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CashSnapshot {
+  id              String   @id @default(cuid())
+  userId          String
+  timestamp       DateTime @default(now())
+  cashOnHandCents Int
+  note            String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Idea {
+  id                String   @id @default(cuid())
+  userId            String
+  title             String
+  description       String?
+  createdAt         DateTime @default(now())
+  linkedMacroGoalId String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  macroGoal MacroGoal? @relation(fields: [linkedMacroGoalId], references: [id])
+  actions   Action[]
+}
+
+model Action {
+  id          String   @id @default(cuid())
+  userId      String
+  ideaId      String
+  description String
+  completedAt DateTime @default(now())
+
+  idea Idea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RoutineExperiment {
+  id          String           @id @default(cuid())
+  userId      String
+  title       String
+  hypothesis  String
+  startDate   DateTime
+  endDate     DateTime?
+  status      ExperimentStatus @default(planned)
+  metric      String
+  targetValue Float
+  resultValue Float?
+  takeaway    String?
+  decisionTag String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Reminder {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  schedule   String
+  nextFireAt DateTime
+  isActive   Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
