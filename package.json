@@ -1,0 +1,46 @@
+{
+  "name": "structure-is-grace",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "ts-node --esm prisma/seed.ts"
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.19",
+    "@heroicons/react": "^2.1.5",
+    "@prisma/client": "^5.10.2",
+    "@tanstack/react-query": "^5.28.9",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.6.0",
+    "date-fns-tz": "^3.2.1",
+    "lucide-react": "^0.372.0",
+    "next": "^14.2.3",
+    "next-auth": "^5.0.0-beta.20",
+    "nodemailer": "^6.9.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.7.2",
+    "zod": "^3.23.8",
+    "@auth/prisma-adapter": "^1.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/nodemailer": "^6.4.14",
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.3",
+    "postcss": "^8.4.38",
+    "prisma": "^5.10.2",
+    "tailwindcss": "^3.4.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
