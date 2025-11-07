@@ -1,16 +1,12 @@
-import { auth } from 'next-auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/server-session';
 import { RoutineExperimentBoard } from '@/components/routine-experiment-board';
 
 export default async function ExperimentsPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect('/signin');
-  }
+  const user = await requireUser();
 
   const experiments = await prisma.routineExperiment.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     orderBy: { startDate: 'desc' }
   });
 

@@ -1,18 +1,9 @@
-import { auth } from 'next-auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/server-session';
 import { MetricsDashboard } from '@/components/metrics-dashboard';
 
 export default async function MetricsPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect('/signin');
-  }
-
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!user) {
-    redirect('/signin');
-  }
+  const user = await requireUser();
 
   return (
     <div className="space-y-6">

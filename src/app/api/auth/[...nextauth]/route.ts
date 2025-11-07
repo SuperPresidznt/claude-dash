@@ -1,6 +1,6 @@
-import NextAuth from 'next-auth';
-import { authConfig } from '@/lib/auth';
+import { handlers } from '@/lib/auth';
 
-const handler = NextAuth(authConfig);
+export const { GET, POST } = handlers;
 
-export { handler as GET, handler as POST };
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';

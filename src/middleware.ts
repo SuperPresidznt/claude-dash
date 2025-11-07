@@ -1,5 +1,5 @@
-export { auth as middleware } from 'next-auth';
+import { NextResponse } from 'next/server';
 
-export const config = {
-  matcher: ['/((?!api/auth|signin|_next|static|favicon.ico).*)']
-};
+export function middleware() {
+  return NextResponse.next();
+}

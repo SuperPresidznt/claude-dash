@@ -1,4 +1,4 @@
-import { PrismaClient, MacroTargetMetricType, ExperimentStatus } from '@prisma/client';
+import { PrismaClient, MacroTargetMetricType, ExperimentStatus, CashflowDirection } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -36,6 +36,42 @@ async function main() {
             targetValue: 2,
             startDate: new Date(),
             status: ExperimentStatus.planned
+          }
+        ]
+      },
+      assets: {
+        create: [
+          { name: 'Checking Account', category: 'Cash', valueCents: 2500000, isLiquid: true },
+          { name: 'Brokerage', category: 'Investments', valueCents: 15000000, isLiquid: true },
+          { name: 'Primary Residence', category: 'Real Estate', valueCents: 45000000, isLiquid: false }
+        ]
+      },
+      liabilities: {
+        create: [
+          { name: 'Mortgage', category: 'Real Estate', balanceCents: 30000000, aprPercent: 3.5, minimumPayment: 150000 },
+          { name: 'Amex Platinum', category: 'Credit', balanceCents: 1200000, minimumPayment: 60000 }
+        ]
+      },
+      cashflowTxns: {
+        create: [
+          {
+            description: 'Consulting Invoice',
+            amountCents: 500000,
+            category: 'Income',
+            direction: CashflowDirection.inflow,
+            note: 'Monthly retainer'
+          },
+          {
+            description: 'Mortgage Payment',
+            amountCents: 180000,
+            category: 'Housing',
+            direction: CashflowDirection.outflow
+          },
+          {
+            description: 'Groceries',
+            amountCents: 45000,
+            category: 'Food',
+            direction: CashflowDirection.outflow
           }
         ]
       }

@@ -1,16 +1,12 @@
-import { auth } from 'next-auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/server-session';
 import { RemindersPanel } from '@/components/reminders-panel';
 
 export default async function RemindersPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect('/signin');
-  }
+  const user = await requireUser();
 
   const reminders = await prisma.reminder.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     orderBy: { nextFireAt: 'asc' }
   });
 

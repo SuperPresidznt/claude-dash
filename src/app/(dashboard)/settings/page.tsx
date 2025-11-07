@@ -1,21 +1,17 @@
-import { auth } from 'next-auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/server-session';
 import { SettingsPanel } from '@/components/settings-panel';
 
 export default async function SettingsPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect('/signin');
-  }
+  const user = await requireUser();
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+  const userWithGoals = await prisma.user.findUnique({
+    where: { id: user.id },
     include: { macroGoals: { orderBy: { title: 'asc' } } }
   });
 
-  if (!user) {
-    redirect('/signin');
+  if (!userWithGoals) {
+    throw new Error('No user record available to render settings.');
   }
 
   return (
@@ -28,13 +24,13 @@ export default async function SettingsPage() {
       </header>
       <SettingsPanel
         user={{
-          id: user.id,
-          email: user.email,
-          timezone: user.timezone,
-          currency: user.currency,
-          defaultStartDuration: user.defaultStartDuration
+          id: userWithGoals.id,
+          email: userWithGoals.email,
+          timezone: userWithGoals.timezone,
+          currency: userWithGoals.currency,
+          defaultStartDuration: userWithGoals.defaultStartDuration
         }}
-        macroGoals={user.macroGoals.map((goal) => ({
+        macroGoals={userWithGoals.macroGoals.map((goal) => ({
           id: goal.id,
           title: goal.title,
           description: goal.description ?? '',

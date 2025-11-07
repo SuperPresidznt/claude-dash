@@ -40,6 +40,9 @@ model User {
   startEvents StartEvent[]
   studySessions StudySession[]
   cashSnapshots CashSnapshot[]
+  assets Asset[]
+  liabilities Liability[]
+  cashflowTxns CashflowTxn[]
   ideas Idea[]
   actions Action[]
   routineExperiments RoutineExperiment[]
@@ -91,6 +94,51 @@ model CashSnapshot {
   note            String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  category    String
+  valueCents  Int
+  isLiquid    Boolean @default(false)
+  note        String?
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Liability {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  category       String
+  balanceCents   Int
+  aprPercent     Float?
+  minimumPayment Int?
+  note           String?
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CashflowTxn {
+  id         String   @id @default(cuid())
+  userId     String
+  description String
+  amountCents Int
+  date        DateTime @default(now())
+  category    String
+  direction   CashflowDirection @default(inflow)
+  note        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum CashflowDirection {
+  inflow
+  outflow
 }
 
 model Idea {

@@ -7,6 +7,7 @@ const navItems = [
   { href: '/dashboard', label: 'Today' },
   { href: '/journal', label: 'Idea → Action' },
   { href: '/experiments', label: 'Experiments' },
+  { href: '/finance', label: 'Finance' },
   { href: '/dashboard/metrics', label: 'Metrics' },
   { href: '/reminders', label: 'Reminders' },
   { href: '/settings', label: 'Settings' }

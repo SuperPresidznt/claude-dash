@@ -1,16 +1,12 @@
-import { auth } from 'next-auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/server-session';
 import { IdeaJournalTable } from '@/components/idea-journal-table';
 
 export default async function JournalPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect('/signin');
-  }
+  const user = await requireUser();
 
   const ideas = await prisma.idea.findMany({
-    where: { userId: session.user.id },
+    where: { userId: user.id },
     include: {
       macroGoal: true,
       actions: true
