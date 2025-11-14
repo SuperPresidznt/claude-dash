@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { subDays } from 'date-fns';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/server-session';
+import { logger, withUserContext } from '@/lib/logger';
 
 const CASHFLOW_WINDOW_DAYS = 30;
 
@@ -9,7 +10,8 @@ export async function GET() {
   const user = await requireUser();
   const db = prisma as any;
 
-  const [assets, liabilities, cashflowSample, latestSnapshot] = await Promise.all([
+  try {
+    const [assets, liabilities, cashflowSample, latestSnapshot] = await Promise.all([
     db.asset.findMany({ where: { userId: user.id } }),
     db.liability.findMany({ where: { userId: user.id } }),
     db.cashflowTxn.findMany({
@@ -61,9 +63,19 @@ export async function GET() {
     windowDays: CASHFLOW_WINDOW_DAYS
   };
 
-  return NextResponse.json({
-    currency: user.currency,
-    summary,
-    totals
-  });
+    logger.info('Computed finance summary', withUserContext(user.id, {
+      assets: assets.length,
+      liabilities: liabilities.length,
+      cashflowSample: cashflowSample.length
+    }));
+
+    return NextResponse.json({
+      currency: user.currency,
+      summary,
+      totals
+    });
+  } catch (error) {
+    logger.error('Failed to compute finance summary', withUserContext(user.id, { error }));
+    return NextResponse.json({ message: 'Unable to load finance summary right now.' }, { status: 500 });
+  }
 }

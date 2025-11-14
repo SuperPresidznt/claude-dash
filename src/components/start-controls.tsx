@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
+import { useToast } from '@/components/ui/toast-provider';
 
 type MacroGoal = {
   id: string;
@@ -54,7 +55,7 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
   const [activeStart, setActiveStart] = useState<{ id: string; durationSec: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [completionState, setCompletionState] = useState<CompletionState | null>(null);
-  const [toastMessage, setToastMessage] = useState('');
+  const { showToast } = useToast();
 
   const createMutation = useMutation({
     mutationFn: ({
@@ -88,9 +89,15 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
       setElapsed(0);
       setMicroWhy('');
       setSelectedMacroId('');
-      setToastMessage('Start logged. Momentum unlocked.');
+      showToast({ description: 'Start logged. Momentum unlocked.', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['metrics', 'today'] });
       onStarted?.();
+    },
+    onError: (error: Error) => {
+      showToast({
+        description: error.message || 'Failed to log start.',
+        variant: 'error'
+      });
     }
   });
 
@@ -104,6 +111,10 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
+      showToast({ description: 'Reflection saved.', variant: 'success' });
+    },
+    onError: (error: Error) => {
+      showToast({ description: error.message || 'Failed to save reflection.', variant: 'error' });
     }
   });
 
@@ -123,12 +134,6 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
     }
   }, [activeStart, completionState, elapsed]);
 
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timeout = window.setTimeout(() => setToastMessage(''), 3000);
-    return () => window.clearTimeout(timeout);
-  }, [toastMessage]);
-
   const progress = useMemo(() => {
     if (!activeStart) return 0;
     return Math.min(1, elapsed / activeStart.durationSec);
@@ -136,7 +141,7 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
 
   const handleStart = useCallback(
     (duration: number) => {
-      if (createMutation.isLoading) return;
+      if (createMutation.isPending) return;
       createMutation.mutate({
         durationSec: duration,
         context: microWhy || undefined,
@@ -242,11 +247,6 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
           </div>
         </div>
       )}
-      {toastMessage && (
-        <div className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
-          {toastMessage}
-        </div>
-      )}
       {completionState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
@@ -313,9 +313,9 @@ export const StartControls = ({ macroGoals, defaultDuration, onStarted }: StartC
                 onClick={handleCompletionSubmit}
                 className={clsx(
                   'rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-slate-900 transition',
-                  updateMutation.isLoading && 'opacity-70'
+                  updateMutation.isPending && 'opacity-70'
                 )}
-                disabled={updateMutation.isLoading}
+                disabled={updateMutation.isPending}
               >
                 Save note
               </button>
