@@ -1,16 +1,20 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MetricCard } from '@/components/metric-card';
 import { useToast } from '@/components/ui/toast-provider';
+import { trackEvent } from '@/lib/analytics';
+import type { AnalyticsEventName, AnalyticsPayload } from '@/lib/analytics';
 
 import type {
   SerializedAsset,
   SerializedLiability,
   SerializedCashflow,
+  SerializedCashflowTemplate,
   FinanceSummary,
-  FinanceTotals
+  FinanceTotals,
+  BudgetEnvelopeWithActuals
 } from '@/lib/finance';
 
 const fetchJson = async <T,>(url: string): Promise<T> => {
@@ -70,10 +74,13 @@ type SummaryResponse = {
 };
 
 type FinanceDashboardProps = {
+  userId: string;
   currency: string;
   initialAssets: SerializedAsset[];
   initialLiabilities: SerializedLiability[];
   initialCashflow: SerializedCashflow[];
+  initialTemplates: SerializedCashflowTemplate[];
+  initialBudgets: BudgetEnvelopeWithActuals[];
   initialSummary: FinanceSummary;
   initialTotals: FinanceTotals;
 };
@@ -118,6 +125,27 @@ type CashflowFilters = {
 
 type CashflowFieldErrors = Partial<Record<'description' | 'category' | 'amount' | 'date', string>>;
 
+type BudgetFormState = {
+  name: string;
+  category: string;
+  period: 'monthly' | 'quarterly' | 'yearly';
+  target: string;
+  note: string;
+};
+
+type BudgetFieldErrors = Partial<Record<'name' | 'category' | 'target', string>>;
+
+type TemplateFormState = {
+  name: string;
+  category: string;
+  direction: 'inflow' | 'outflow';
+  amount: string;
+  defaultNote: string;
+  dayOfMonth: string;
+};
+
+type TemplateFieldErrors = Partial<Record<'name' | 'category' | 'amount', string>>;
+
 type KpiCard = {
   label: string;
   value: string;
@@ -131,6 +159,8 @@ const defaultCashflowFilters: CashflowFilters = {
   endDate: '',
   search: ''
 };
+
+const CASHFLOW_FILTERS_STORAGE_KEY = 'sig:finance:cashflowFilters';
 
 const exportCashflowCsv = (rows: SerializedCashflow[], currency: string) => {
   if (!rows.length) return;
@@ -174,15 +204,43 @@ const getErrorMessage = (error: unknown) => {
 };
 
 export function FinanceDashboard({
+  userId,
   currency,
   initialAssets,
   initialLiabilities,
   initialCashflow,
+  initialTemplates,
+  initialBudgets,
   initialSummary,
   initialTotals
 }: FinanceDashboardProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const showSuccessToast = (description: string) => showToast({ description, variant: 'success' });
+  const showErrorToast = (description: string) =>
+    showToast({ title: 'Finance action failed', description, variant: 'error' });
+  const emitEvent = (eventName: AnalyticsEventName, payload?: AnalyticsPayload) =>
+    trackEvent(eventName, { userId, panel: 'finance', ...payload });
+  const handleMutationFailure = (
+    error: Error,
+    fallback: string,
+    setError?: (message: string) => void
+  ) => {
+    const message = getErrorMessage(error) || fallback;
+    if (setError) {
+      setError(message);
+    }
+    showErrorToast(message);
+  };
+  const handleMutationSuccess = (
+    description: string,
+    options?: { event: AnalyticsEventName; payload?: AnalyticsPayload }
+  ) => {
+    showSuccessToast(description);
+    if (options) {
+      emitEvent(options.event, options.payload);
+    }
+  };
 
   const assetsQuery = useQuery({
     queryKey: ['finance', 'assets'],
@@ -202,6 +260,18 @@ export function FinanceDashboard({
     initialData: initialCashflow
   });
 
+  const templatesQuery = useQuery({
+    queryKey: ['finance', 'templates'],
+    queryFn: () => fetchJson<SerializedCashflowTemplate[]>('/api/finance/cashflow/templates'),
+    initialData: initialTemplates
+  });
+
+  const budgetsQuery = useQuery({
+    queryKey: ['finance', 'budgets'],
+    queryFn: () => fetchJson<BudgetEnvelopeWithActuals[]>('/api/finance/budgets'),
+    initialData: initialBudgets
+  });
+
   const summaryQuery = useQuery({
     queryKey: ['finance', 'summary'],
     queryFn: () => fetchJson<SummaryResponse>('/api/finance/summary'),
@@ -211,6 +281,8 @@ export function FinanceDashboard({
   const assets = assetsQuery.data ?? initialAssets;
   const liabilities = liabilitiesQuery.data ?? initialLiabilities;
   const cashflow = cashflowQuery.data ?? initialCashflow;
+  const templates = templatesQuery.data ?? initialTemplates;
+  const budgets = budgetsQuery.data ?? initialBudgets;
 
   const { summary, totals } = summaryQuery.data ?? {
     summary: initialSummary,
@@ -287,6 +359,70 @@ export function FinanceDashboard({
   const [cashflowError, setCashflowError] = useState<string | null>(null);
   const [cashflowFieldErrors, setCashflowFieldErrors] = useState<CashflowFieldErrors>({});
   const [cashflowFilters, setCashflowFilters] = useState<CashflowFilters>(defaultCashflowFilters);
+  const filtersHydratedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem(CASHFLOW_FILTERS_STORAGE_KEY) : null;
+      if (!stored) {
+        filtersHydratedRef.current = true;
+        return;
+      }
+      const parsed = JSON.parse(stored);
+      if (
+        parsed &&
+        (parsed.direction === 'all' || parsed.direction === 'inflow' || parsed.direction === 'outflow') &&
+        typeof parsed.category === 'string' &&
+        typeof parsed.startDate === 'string' &&
+        typeof parsed.endDate === 'string' &&
+        typeof parsed.search === 'string'
+      ) {
+        setCashflowFilters(parsed as CashflowFilters);
+      }
+    } catch {
+      // Ignore malformed storage
+    } finally {
+      filtersHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydratedRef.current) return;
+    try {
+      window.localStorage.setItem(CASHFLOW_FILTERS_STORAGE_KEY, JSON.stringify(cashflowFilters));
+    } catch {
+      // Ignore storage write errors (e.g., private mode)
+    }
+  }, [cashflowFilters]);
+
+  const defaultBudgetForm: BudgetFormState = {
+    name: '',
+    category: '',
+    period: 'monthly',
+    target: '',
+    note: ''
+  };
+
+  const [budgetForm, setBudgetForm] = useState<BudgetFormState>(defaultBudgetForm);
+  const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<BudgetEnvelopeWithActuals | null>(null);
+  const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [budgetFieldErrors, setBudgetFieldErrors] = useState<BudgetFieldErrors>({});
+
+  const defaultTemplateForm: TemplateFormState = {
+    name: '',
+    category: '',
+    direction: 'outflow',
+    amount: '',
+    defaultNote: '',
+    dayOfMonth: ''
+  };
+
+  const [templateForm, setTemplateForm] = useState<TemplateFormState>(defaultTemplateForm);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<SerializedCashflowTemplate | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateFieldErrors, setTemplateFieldErrors] = useState<TemplateFieldErrors>({});
 
   const filteredCashflow = useMemo(() => {
     return (cashflow ?? []).filter((txn) => {
@@ -355,6 +491,85 @@ export function FinanceDashboard({
       delete next[field];
       return next;
     });
+  };
+
+  const clearBudgetFieldError = (field: keyof BudgetFieldErrors) => {
+    setBudgetFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const clearTemplateFieldError = (field: keyof TemplateFieldErrors) => {
+    setTemplateFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const closeBudgetDialog = () => {
+    setBudgetDialogOpen(false);
+    setEditingBudget(null);
+    setBudgetForm(defaultBudgetForm);
+    setBudgetError(null);
+    setBudgetFieldErrors({});
+  };
+
+  const openCreateBudget = () => {
+    setEditingBudget(null);
+    setBudgetForm(defaultBudgetForm);
+    setBudgetDialogOpen(true);
+    setBudgetFieldErrors({});
+    setBudgetError(null);
+  };
+
+  const openEditBudget = (budget: BudgetEnvelopeWithActuals) => {
+    setEditingBudget(budget);
+    setBudgetForm({
+      name: budget.name,
+      category: budget.category,
+      period: budget.period,
+      target: (budget.targetCents / 100).toString(),
+      note: budget.note ?? ''
+    });
+    setBudgetDialogOpen(true);
+    setBudgetFieldErrors({});
+    setBudgetError(null);
+  };
+
+  const closeTemplateDialog = () => {
+    setTemplateDialogOpen(false);
+    setEditingTemplate(null);
+    setTemplateForm(defaultTemplateForm);
+    setTemplateError(null);
+    setTemplateFieldErrors({});
+  };
+
+  const openCreateTemplate = () => {
+    setEditingTemplate(null);
+    setTemplateForm(defaultTemplateForm);
+    setTemplateDialogOpen(true);
+    setTemplateFieldErrors({});
+    setTemplateError(null);
+  };
+
+  const openEditTemplate = (template: SerializedCashflowTemplate) => {
+    setEditingTemplate(template);
+    setTemplateForm({
+      name: template.name,
+      category: template.category,
+      direction: template.direction,
+      amount: (template.amountCents / 100).toString(),
+      defaultNote: template.defaultNote ?? '',
+      dayOfMonth: template.dayOfMonth != null ? template.dayOfMonth.toString() : ''
+    });
+    setTemplateDialogOpen(true);
+    setTemplateFieldErrors({});
+    setTemplateError(null);
   };
 
   const closeAssetDialog = () => {
@@ -464,6 +679,15 @@ export function FinanceDashboard({
     queryClient.invalidateQueries({ queryKey: ['finance', 'summary'] });
   };
 
+  const invalidateBudgets = () => {
+    queryClient.invalidateQueries({ queryKey: ['finance', 'budgets'] });
+    queryClient.invalidateQueries({ queryKey: ['finance', 'summary'] });
+  };
+
+  const invalidateTemplates = () => {
+    queryClient.invalidateQueries({ queryKey: ['finance', 'templates'] });
+  };
+
   const createAssetMutation = useMutation({
     mutationFn: (input: AssetFormState) => {
       const valueNumber = Number(input.value);
@@ -475,16 +699,15 @@ export function FinanceDashboard({
         note: input.note ? input.note : undefined
       });
     },
-    onSuccess: () => {
+    onSuccess: (asset) => {
       invalidateFinanceQueries();
       closeAssetDialog();
-      showToast({ description: 'Asset saved.', variant: 'success' });
+      handleMutationSuccess('Asset saved.', {
+        event: 'finance.asset.created',
+        payload: { assetId: asset.id, category: asset.category }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to save asset.';
-      setAssetError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to save asset.', setAssetError)
   });
 
   const updateAssetMutation = useMutation({
@@ -498,30 +721,28 @@ export function FinanceDashboard({
         note: payload.form.note ? payload.form.note : null
       });
     },
-    onSuccess: () => {
+    onSuccess: (asset) => {
       invalidateFinanceQueries();
       closeAssetDialog();
-      showToast({ description: 'Asset updated.', variant: 'success' });
+      handleMutationSuccess('Asset updated.', {
+        event: 'finance.asset.updated',
+        payload: { assetId: asset.id, category: asset.category }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to update asset.';
-      setAssetError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to update asset.', setAssetError)
   });
 
   const deleteAssetMutation = useMutation({
     mutationFn: (assetId: string) => deleteRequest(`/api/finance/assets/${assetId}`),
-    onSuccess: () => {
+    onSuccess: (_, assetId) => {
       invalidateFinanceQueries();
       closeAssetDialog();
-      showToast({ description: 'Asset removed.', variant: 'success' });
+      handleMutationSuccess('Asset removed.', {
+        event: 'finance.asset.deleted',
+        payload: { assetId }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to delete asset.';
-      setAssetError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to delete asset.', setAssetError)
   });
 
   const handleAssetSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -582,16 +803,15 @@ export function FinanceDashboard({
         note: input.note ? input.note : undefined
       });
     },
-    onSuccess: () => {
+    onSuccess: (liability) => {
       invalidateLiabilities();
       closeLiabilityDialog();
-      showToast({ description: 'Liability saved.', variant: 'success' });
+      handleMutationSuccess('Liability saved.', {
+        event: 'finance.liability.created',
+        payload: { liabilityId: liability.id, category: liability.category }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to save liability.';
-      setLiabilityError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to save liability.', setLiabilityError)
   });
 
   const updateLiabilityMutation = useMutation({
@@ -609,30 +829,28 @@ export function FinanceDashboard({
         note: payload.form.note ? payload.form.note : undefined
       });
     },
-    onSuccess: () => {
+    onSuccess: (liability) => {
       invalidateLiabilities();
       closeLiabilityDialog();
-      showToast({ description: 'Liability updated.', variant: 'success' });
+      handleMutationSuccess('Liability updated.', {
+        event: 'finance.liability.updated',
+        payload: { liabilityId: liability.id, category: liability.category }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to update liability.';
-      setLiabilityError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to update liability.', setLiabilityError)
   });
 
   const deleteLiabilityMutation = useMutation({
     mutationFn: (liabilityId: string) => deleteRequest(`/api/finance/liabilities/${liabilityId}`),
-    onSuccess: () => {
+    onSuccess: (_, liabilityId) => {
       invalidateLiabilities();
       closeLiabilityDialog();
-      showToast({ description: 'Liability removed.', variant: 'success' });
+      handleMutationSuccess('Liability removed.', {
+        event: 'finance.liability.deleted',
+        payload: { liabilityId }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to delete liability.';
-      setLiabilityError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to delete liability.', setLiabilityError)
   });
 
   const handleLiabilitySubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -706,16 +924,15 @@ export function FinanceDashboard({
         note: input.note ? input.note : undefined
       });
     },
-    onSuccess: () => {
+    onSuccess: (txn) => {
       invalidateCashflow();
       closeCashflowDialog();
-      showToast({ description: 'Transaction logged.', variant: 'success' });
+      handleMutationSuccess('Transaction logged.', {
+        event: 'finance.cashflow.created',
+        payload: { cashflowId: txn.id, category: txn.category, direction: txn.direction }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to save transaction.';
-      setCashflowError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to save transaction.', setCashflowError)
   });
 
   const updateCashflowMutation = useMutation({
@@ -730,30 +947,85 @@ export function FinanceDashboard({
         note: payload.form.note ? payload.form.note : null
       });
     },
-    onSuccess: () => {
+    onSuccess: (txn) => {
       invalidateCashflow();
       closeCashflowDialog();
-      showToast({ description: 'Transaction updated.', variant: 'success' });
+      handleMutationSuccess('Transaction updated.', {
+        event: 'finance.cashflow.updated',
+        payload: { cashflowId: txn.id, category: txn.category, direction: txn.direction }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to update transaction.';
-      setCashflowError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to update transaction.', setCashflowError)
   });
 
   const deleteCashflowMutation = useMutation({
     mutationFn: (txnId: string) => deleteRequest(`/api/finance/cashflow/${txnId}`),
-    onSuccess: () => {
+    onSuccess: (_, txnId) => {
       invalidateCashflow();
       closeCashflowDialog();
-      showToast({ description: 'Transaction deleted.', variant: 'success' });
+      handleMutationSuccess('Transaction deleted.', {
+        event: 'finance.cashflow.deleted',
+        payload: { cashflowId: txnId }
+      });
     },
-    onError: (error: Error) => {
-      const message = getErrorMessage(error) || 'Failed to delete transaction.';
-      setCashflowError(message);
-      showToast({ description: message, variant: 'error' });
-    }
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to delete transaction.', setCashflowError)
+  });
+
+  const createBudgetMutation = useMutation({
+    mutationFn: (input: BudgetFormState) => {
+      const targetNumber = Number(input.target);
+      return postJson<BudgetEnvelopeWithActuals>('/api/finance/budgets', {
+        name: input.name,
+        category: input.category,
+        period: input.period,
+        targetCents: Math.round(targetNumber * 100),
+        note: input.note ? input.note : undefined
+      });
+    },
+    onSuccess: (budget) => {
+      invalidateBudgets();
+      closeBudgetDialog();
+      handleMutationSuccess('Budget saved.', {
+        event: 'finance.budget.created',
+        payload: { budgetId: budget.id, category: budget.category }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to save budget.', setBudgetError)
+  });
+
+  const updateBudgetMutation = useMutation({
+    mutationFn: (payload: { budget: BudgetEnvelopeWithActuals; form: BudgetFormState }) => {
+      const targetNumber = Number(payload.form.target);
+      return patchJson<BudgetEnvelopeWithActuals>(`/api/finance/budgets/${payload.budget.id}`, {
+        name: payload.form.name,
+        category: payload.form.category,
+        period: payload.form.period,
+        targetCents: Math.round(targetNumber * 100),
+        note: payload.form.note ? payload.form.note : null
+      });
+    },
+    onSuccess: (budget) => {
+      invalidateBudgets();
+      closeBudgetDialog();
+      handleMutationSuccess('Budget updated.', {
+        event: 'finance.budget.updated',
+        payload: { budgetId: budget.id, category: budget.category }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to update budget.', setBudgetError)
+  });
+
+  const deleteBudgetMutation = useMutation({
+    mutationFn: (budgetId: string) => deleteRequest(`/api/finance/budgets/${budgetId}`),
+    onSuccess: (_, budgetId) => {
+      invalidateBudgets();
+      closeBudgetDialog();
+      handleMutationSuccess('Budget removed.', {
+        event: 'finance.budget.deleted',
+        payload: { budgetId }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to delete budget.', setBudgetError)
   });
 
   const handleCashflowSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -802,6 +1074,163 @@ export function FinanceDashboard({
 
   const isCashflowSaving = createCashflowMutation.isPending || updateCashflowMutation.isPending;
   const isCashflowDeleting = deleteCashflowMutation.isPending;
+
+  const createTemplateMutation = useMutation({
+    mutationFn: (input: TemplateFormState) => {
+      const amountNumber = Number(input.amount);
+      return postJson<SerializedCashflowTemplate>('/api/finance/cashflow/templates', {
+        name: input.name,
+        category: input.category,
+        direction: input.direction,
+        amountCents: Math.round(amountNumber * 100),
+        defaultNote: input.defaultNote ? input.defaultNote : undefined,
+        dayOfMonth: input.dayOfMonth ? Number(input.dayOfMonth) : undefined
+      });
+    },
+    onSuccess: (template) => {
+      invalidateTemplates();
+      closeTemplateDialog();
+      handleMutationSuccess('Template saved.', {
+        event: 'finance.template.created',
+        payload: { templateId: template.id, category: template.category }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to save template.', setTemplateError)
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: (payload: { template: SerializedCashflowTemplate; form: TemplateFormState }) => {
+      const amountNumber = Number(payload.form.amount);
+      return patchJson<SerializedCashflowTemplate>(`/api/finance/cashflow/templates/${payload.template.id}`, {
+        name: payload.form.name,
+        category: payload.form.category,
+        direction: payload.form.direction,
+        amountCents: Math.round(amountNumber * 100),
+        defaultNote: payload.form.defaultNote ? payload.form.defaultNote : null,
+        dayOfMonth: payload.form.dayOfMonth ? Number(payload.form.dayOfMonth) : null
+      });
+    },
+    onSuccess: (template) => {
+      invalidateTemplates();
+      closeTemplateDialog();
+      handleMutationSuccess('Template updated.', {
+        event: 'finance.template.updated',
+        payload: { templateId: template.id, category: template.category }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to update template.', setTemplateError)
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => deleteRequest(`/api/finance/cashflow/templates/${templateId}`),
+    onSuccess: (_, templateId) => {
+      invalidateTemplates();
+      closeTemplateDialog();
+      handleMutationSuccess('Template removed.', {
+        event: 'finance.template.deleted',
+        payload: { templateId }
+      });
+    },
+    onError: (error: Error) => handleMutationFailure(error, 'Failed to delete template.', setTemplateError)
+  });
+
+  const handleTemplateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTemplateError(null);
+    setTemplateFieldErrors({});
+
+    const errors: TemplateFieldErrors = {};
+    const amountTrimmed = templateForm.amount.trim();
+
+    if (!templateForm.name.trim()) {
+      errors.name = 'Name is required.';
+    }
+
+    if (!templateForm.category.trim()) {
+      errors.category = 'Category is required.';
+    }
+
+    if (!amountTrimmed) {
+      errors.amount = 'Amount is required.';
+    } else if (Number.isNaN(Number(amountTrimmed))) {
+      errors.amount = 'Amount must be a number.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setTemplateFieldErrors(errors);
+      setTemplateError('Please fix the highlighted fields.');
+      return;
+    }
+
+    if (editingTemplate) {
+      updateTemplateMutation.mutate({ template: editingTemplate, form: templateForm });
+    } else {
+      createTemplateMutation.mutate(templateForm);
+    }
+  };
+
+  const handleTemplateDelete = () => {
+    if (!editingTemplate) return;
+    deleteTemplateMutation.mutate(editingTemplate.id);
+  };
+
+  const isTemplateSaving = createTemplateMutation.isPending || updateTemplateMutation.isPending;
+  const isTemplateDeleting = deleteTemplateMutation.isPending;
+
+  const applyTemplateToCashflow = (template: SerializedCashflowTemplate) => {
+    setCashflowForm((state) => ({
+      ...state,
+      description: template.name,
+      category: template.category,
+      amount: (template.amountCents / 100).toString(),
+      direction: template.direction,
+      note: template.defaultNote ?? ''
+    }));
+    showToast({ description: 'Template applied to transaction form.', variant: 'warning' });
+  };
+
+  const handleBudgetSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBudgetError(null);
+    setBudgetFieldErrors({});
+
+    const errors: BudgetFieldErrors = {};
+    const targetTrimmed = budgetForm.target.trim();
+
+    if (!budgetForm.name.trim()) {
+      errors.name = 'Name is required.';
+    }
+
+    if (!budgetForm.category.trim()) {
+      errors.category = 'Category is required.';
+    }
+
+    if (!targetTrimmed) {
+      errors.target = 'Target amount is required.';
+    } else if (Number.isNaN(Number(targetTrimmed))) {
+      errors.target = 'Target must be a number.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setBudgetFieldErrors(errors);
+      setBudgetError('Please fix the highlighted fields.');
+      return;
+    }
+
+    if (editingBudget) {
+      updateBudgetMutation.mutate({ budget: editingBudget, form: budgetForm });
+    } else {
+      createBudgetMutation.mutate(budgetForm);
+    }
+  };
+
+  const handleBudgetDelete = () => {
+    if (!editingBudget) return;
+    deleteBudgetMutation.mutate(editingBudget.id);
+  };
+
+  const isBudgetSaving = createBudgetMutation.isPending || updateBudgetMutation.isPending;
+  const isBudgetDeleting = deleteBudgetMutation.isPending;
 
   const kpIs = useMemo<KpiCard[]>(
     () => [
@@ -861,10 +1290,220 @@ export function FinanceDashboard({
             </div>
           </div>
         )}
+
+      {templateDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md space-y-5 rounded-2xl bg-surface p-6 shadow-xl">
+            <div>
+              <h3 className="text-lg font-semibold text-white">{editingTemplate ? 'Edit Template' : 'New Template'}</h3>
+              <p className="text-xs text-slate-400">Pre-fill recurring transactions and apply them quickly.</p>
+            </div>
+            {templateError && (
+              <div className="rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-sm text-rose-200">{templateError}</div>
+            )}
+            <form onSubmit={handleTemplateSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wide text-slate-400">Name</label>
+                <input
+                  value={templateForm.name}
+                  onChange={(event) => setTemplateForm((state) => ({ ...state, name: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  placeholder="Rent"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wide text-slate-400">Category</label>
+                <input
+                  value={templateForm.category}
+                  onChange={(event) => setTemplateForm((state) => ({ ...state, category: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  placeholder="Housing"
+                  required
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Direction</label>
+                  <select
+                    value={templateForm.direction}
+                    onChange={(event) =>
+                      setTemplateForm((state) => ({ ...state, direction: event.target.value as TemplateFormState['direction'] }))
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  >
+                    <option value="outflow">Outflow</option>
+                    <option value="inflow">Inflow</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Amount ({currency})</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={templateForm.amount}
+                    onChange={(event) => setTemplateForm((state) => ({ ...state, amount: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Default Note</label>
+                  <textarea
+                    value={templateForm.defaultNote}
+                    onChange={(event) => setTemplateForm((state) => ({ ...state, defaultNote: event.target.value }))}
+                    className="h-full min-h-[80px] w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                    placeholder="Optional context"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Day of Month</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={templateForm.dayOfMonth}
+                    onChange={(event) => setTemplateForm((state) => ({ ...state, dayOfMonth: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                {editingTemplate && (
+                  <button
+                    type="button"
+                    onClick={handleTemplateDelete}
+                    disabled={isTemplateDeleting}
+                    className="mr-auto text-sm text-rose-400 transition hover:text-rose-300 disabled:opacity-60"
+                  >
+                    {isTemplateDeleting ? 'Deleting…' : 'Delete template'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeTemplateDialog}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-slate-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isTemplateSaving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-emerald-300 disabled:opacity-70"
+                >
+                  {isTemplateSaving ? 'Saving…' : editingTemplate ? 'Save changes' : 'Add template'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
         <div className="grid gap-4 md:grid-cols-3">
           {kpIs.map((item: KpiCard) => (
             <MetricCard key={item.label} label={item.label} value={item.value} helper={item.helper} />
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-surface/70 p-5">
+        <header className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Recurring Templates</h2>
+            <p className="text-xs text-slate-400">Save frequent transactions and apply them quickly.</p>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>{templates?.length ?? 0} templates</span>
+            <button
+              onClick={openCreateTemplate}
+              className="rounded-lg border border-slate-700 px-3 py-1 text-xs font-semibold text-white transition hover:border-primary hover:text-primary"
+            >
+              New Template
+            </button>
+          </div>
+        </header>
+        {templatesQuery.isError && (
+          <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>Failed to load templates: {getErrorMessage(templatesQuery.error)}</span>
+              <button
+                type="button"
+                onClick={() => templatesQuery.refetch()}
+                className="rounded-md border border-rose-300/50 px-2 py-1 text-[11px] font-semibold text-rose-50 transition hover:bg-rose-400/20"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm text-slate-200">
+            <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-2 pr-4">Name</th>
+                <th className="py-2 pr-4">Category</th>
+                <th className="py-2 pr-4">Direction</th>
+                <th className="py-2 pr-4 text-right">Amount</th>
+                <th className="py-2 pr-4">Default Note</th>
+                <th className="py-2 pr-4">Day</th>
+                <th className="py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {(templates ?? []).map((template) => (
+                <tr key={template.id} className="hover:bg-slate-800/40">
+                  <td className="py-2 pr-4 font-medium text-white">{template.name}</td>
+                  <td className="py-2 pr-4 text-slate-300">{template.category}</td>
+                  <td className="py-2 pr-4 capitalize text-slate-400">{template.direction}</td>
+                  <td className="py-2 pr-4 text-right text-slate-100">{centsToCurrency(template.amountCents, currency)}</td>
+                  <td className="py-2 pr-4 text-slate-400">{template.defaultNote ?? '—'}</td>
+                  <td className="py-2 pr-4 text-slate-400">{template.dayOfMonth ?? '—'}</td>
+                  <td className="py-2 text-right text-xs">
+                    <button
+                      onClick={() => applyTemplateToCashflow(template)}
+                      className="mr-3 text-sky-300 transition hover:text-sky-200"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={() => openEditTemplate(template)}
+                      className="mr-3 text-emerald-300 transition hover:text-emerald-200"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingTemplate(template);
+                        setTemplateForm({
+                          name: template.name,
+                          category: template.category,
+                          direction: template.direction,
+                          amount: (template.amountCents / 100).toString(),
+                          defaultNote: template.defaultNote ?? '',
+                          dayOfMonth: template.dayOfMonth != null ? template.dayOfMonth.toString() : ''
+                        });
+                        setTemplateDialogOpen(true);
+                      }}
+                      className="text-rose-400 transition hover:text-rose-300"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {(templates?.length ?? 0) === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-sm text-slate-500">
+                    No templates yet. Save recurring transactions to reuse them later.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -1233,6 +1872,106 @@ export function FinanceDashboard({
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-800 bg-surface/70 p-5">
+        <header className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Budget Envelopes</h2>
+            <p className="text-xs text-slate-400">Track category targets and watch real-time variance.</p>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>{budgets?.length ?? 0} active</span>
+            <button
+              onClick={openCreateBudget}
+              className="rounded-lg border border-slate-700 px-3 py-1 text-xs font-semibold text-white transition hover:border-primary hover:text-primary"
+            >
+              New Envelope
+            </button>
+          </div>
+        </header>
+        {budgetsQuery.isError && (
+          <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>Failed to load budgets: {getErrorMessage(budgetsQuery.error)}</span>
+              <button
+                type="button"
+                onClick={() => budgetsQuery.refetch()}
+                className="rounded-md border border-rose-300/50 px-2 py-1 text-[11px] font-semibold text-rose-50 transition hover:bg-rose-400/20"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm text-slate-200">
+            <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-2 pr-4">Name</th>
+                <th className="py-2 pr-4">Category</th>
+                <th className="py-2 pr-4">Period</th>
+                <th className="py-2 pr-4 text-right">Target</th>
+                <th className="py-2 pr-4 text-right">Spent</th>
+                <th className="py-2 pr-4 text-right">Remaining</th>
+                <th className="py-2 pr-4 text-right">Variance</th>
+                <th className="py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {(budgets ?? []).map((budget) => {
+                const variancePercent = budget.variancePercent ?? 0;
+                const varianceColor = variancePercent > 0 ? 'text-rose-300' : variancePercent < 0 ? 'text-emerald-300' : 'text-slate-300';
+                return (
+                  <tr key={budget.id} className="hover:bg-slate-800/40">
+                    <td className="py-2 pr-4 font-medium text-white">{budget.name}</td>
+                    <td className="py-2 pr-4 text-slate-300">{budget.category}</td>
+                    <td className="py-2 pr-4 capitalize text-slate-400">{budget.period}</td>
+                    <td className="py-2 pr-4 text-right text-slate-100">{centsToCurrency(budget.targetCents, currency)}</td>
+                    <td className="py-2 pr-4 text-right text-rose-200">{centsToCurrency(budget.actualSpentCents, currency)}</td>
+                    <td className={`py-2 pr-4 text-right ${budget.remainingCents < 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                      {centsToCurrency(budget.remainingCents, currency)}
+                    </td>
+                    <td className={`py-2 pr-4 text-right ${varianceColor}`}>
+                      {budget.variancePercent != null ? `${(variancePercent * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className="py-2 text-right text-xs">
+                      <button
+                        onClick={() => openEditBudget(budget)}
+                        className="mr-3 text-emerald-300 transition hover:text-emerald-200"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingBudget(budget);
+                          setBudgetForm({
+                            name: budget.name,
+                            category: budget.category,
+                            period: budget.period,
+                            target: (budget.targetCents / 100).toString(),
+                            note: budget.note ?? ''
+                          });
+                          setBudgetDialogOpen(true);
+                        }}
+                        className="text-rose-400 transition hover:text-rose-300"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {(budgets?.length ?? 0) === 0 && (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-sm text-slate-500">
+                    No envelopes yet. Create budgets to cap spending per category.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {assetDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md space-y-5 rounded-2xl bg-surface p-6 shadow-xl">
@@ -1325,6 +2064,107 @@ export function FinanceDashboard({
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-emerald-300 disabled:opacity-70"
                 >
                   {isSaving ? 'Saving…' : editingAsset ? 'Save changes' : 'Add asset'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {budgetDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md space-y-5 rounded-2xl bg-surface p-6 shadow-xl">
+            <div>
+              <h3 className="text-lg font-semibold text-white">{editingBudget ? 'Edit Budget Envelope' : 'Add Budget Envelope'}</h3>
+              <p className="text-xs text-slate-400">Set a target per period to keep spending in check.</p>
+            </div>
+            {budgetError && (
+              <div className="rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-sm text-rose-200">{budgetError}</div>
+            )}
+            <form onSubmit={handleBudgetSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wide text-slate-400">Name</label>
+                <input
+                  value={budgetForm.name}
+                  onChange={(event) => setBudgetForm((state) => ({ ...state, name: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  placeholder="Household"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wide text-slate-400">Category</label>
+                <input
+                  value={budgetForm.category}
+                  onChange={(event) => setBudgetForm((state) => ({ ...state, category: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  placeholder="Groceries"
+                  required
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Period</label>
+                  <select
+                    value={budgetForm.period}
+                    onChange={(event) =>
+                      setBudgetForm((state) => ({ ...state, period: event.target.value as BudgetFormState['period'] }))
+                    }
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-slate-400">Target ({currency})</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={budgetForm.target}
+                    onChange={(event) => setBudgetForm((state) => ({ ...state, target: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wide text-slate-400">Note</label>
+                <textarea
+                  value={budgetForm.note}
+                  onChange={(event) => setBudgetForm((state) => ({ ...state, note: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  rows={3}
+                  placeholder="Optional context"
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                {editingBudget && (
+                  <button
+                    type="button"
+                    onClick={handleBudgetDelete}
+                    disabled={isBudgetDeleting}
+                    className="mr-auto text-sm text-rose-400 transition hover:text-rose-300 disabled:opacity-60"
+                  >
+                    {isBudgetDeleting ? 'Deleting…' : 'Delete budget'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeBudgetDialog}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-slate-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isBudgetSaving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-emerald-300 disabled:opacity-70"
+                >
+                  {isBudgetSaving ? 'Saving…' : editingBudget ? 'Save changes' : 'Add budget'}
                 </button>
               </div>
             </form>

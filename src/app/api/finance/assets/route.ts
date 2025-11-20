@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/server-session';
 import { logger, withUserContext } from '@/lib/logger';
+import { apiHandler } from '@/lib/api-handler';
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -12,7 +13,7 @@ const createSchema = z.object({
   note: z.string().max(2000).optional()
 });
 
-export async function GET() {
+export const GET = apiHandler('assets.list', async () => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -24,13 +25,13 @@ export async function GET() {
 
     logger.info('Fetched assets', withUserContext(user.id, { count: assets.length }));
     return NextResponse.json(assets);
-  } catch (error: unknown) {
+  } catch (error) {
     logger.error('Failed to fetch assets', withUserContext(user.id, { error }));
     return NextResponse.json({ message: 'Unable to load assets right now.' }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: Request) {
+export const POST = apiHandler('assets.create', async (request) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
 
     logger.info('Created asset', withUserContext(user.id, { assetId: asset.id }));
     return NextResponse.json(asset, { status: 201 });
-  } catch (error: unknown) {
+  } catch (error) {
     logger.error('Failed to create asset', withUserContext(user.id, { error }));
 
     if (error instanceof z.ZodError) {
@@ -60,4 +61,4 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ message: 'Unable to create asset right now.' }, { status: 500 });
   }
-}
+});

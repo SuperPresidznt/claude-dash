@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/server-session';
 import { logger, withUserContext } from '@/lib/logger';
+import { apiHandler } from '@/lib/api-handler';
 
 const createSchema = z.object({
   description: z.string().min(1),
@@ -13,7 +14,7 @@ const createSchema = z.object({
   note: z.string().max(2000).optional()
 });
 
-export async function GET() {
+export const GET = apiHandler('cashflow.list', async () => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -30,9 +31,9 @@ export async function GET() {
     logger.error('Failed to fetch cashflow transactions', withUserContext(user.id, { error }));
     return NextResponse.json({ message: 'Unable to load cashflow right now.' }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: Request) {
+export const POST = apiHandler('cashflow.create', async (request) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -63,4 +64,4 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ message: 'Unable to create cashflow right now.' }, { status: 500 });
   }
-}
+});

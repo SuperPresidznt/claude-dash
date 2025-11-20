@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/server-session';
 import { logger, withUserContext } from '@/lib/logger';
+import { apiHandler } from '@/lib/api-handler';
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -12,7 +13,7 @@ const updateSchema = z.object({
   note: z.string().max(2000).nullable().optional()
 });
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export const PATCH = apiHandler('assets.update', async (request, { params }: { params: { id: string } }) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -51,9 +52,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     return NextResponse.json({ message: 'Unable to update asset right now.' }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export const DELETE = apiHandler('assets.delete', async (_: Request, { params }: { params: { id: string } }) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -75,4 +76,4 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
     logger.error('Failed to delete asset', withUserContext(user.id, { assetId: params.id, error }));
     return NextResponse.json({ message: 'Unable to delete asset right now.' }, { status: 500 });
   }
-}
+});

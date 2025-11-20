@@ -43,6 +43,8 @@ model User {
   assets Asset[]
   liabilities Liability[]
   cashflowTxns CashflowTxn[]
+  cashflowTemplates CashflowTemplate[]
+  budgetEnvelopes BudgetEnvelope[]
   ideas Idea[]
   actions Action[]
   routineExperiments RoutineExperiment[]
@@ -71,6 +73,35 @@ model StartEvent {
   context           String?
   linkedEntityType  LinkedEntityType?
   linkedEntityId    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CashflowTemplate {
+  id          String            @id @default(cuid())
+  userId      String
+  name        String
+  category    String
+  direction   CashflowDirection @default(outflow)
+  amountCents Int
+  defaultNote String?
+  dayOfMonth  Int?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BudgetEnvelope {
+  id           String       @id @default(cuid())
+  userId       String
+  name         String
+  category     String
+  period       BudgetPeriod @default(monthly)
+  targetCents  Int
+  note         String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -139,6 +170,12 @@ model CashflowTxn {
 enum CashflowDirection {
   inflow
   outflow
+}
+
+enum BudgetPeriod {
+  monthly
+  quarterly
+  yearly
 }
 
 model Idea {

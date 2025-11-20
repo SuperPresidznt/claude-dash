@@ -1,3 +1,5 @@
+import * as Sentry from '@sentry/nextjs';
+
 type LogLevel = 'info' | 'warn' | 'error';
 
 type LogMetadata = Record<string, unknown> | undefined;
@@ -11,6 +13,12 @@ const formatMetadata = (metadata: LogMetadata) => {
 
 const log = (level: LogLevel, message: string, metadata?: LogMetadata) => {
   const formattedMeta = formatMetadata(metadata);
+  Sentry.addBreadcrumb({
+    type: 'default',
+    level,
+    message,
+    data: formattedMeta
+  });
 
   if (formattedMeta) {
     const payload = { level, message, ...formattedMeta };
@@ -43,6 +51,16 @@ const extractError = (error: unknown) => {
   return { message: String(error) };
 };
 
+const captureError = (error: unknown, context?: LogMetadata) => {
+  if (error instanceof Error) {
+    Sentry.captureException(error, { extra: context });
+  } else {
+    Sentry.captureMessage(typeof error === 'string' ? error : JSON.stringify(error), {
+      extra: context
+    });
+  }
+};
+
 export const logger = {
   info: (message: string, metadata?: LogMetadata) => log('info', message, metadata),
   warn: (message: string, metadata?: LogMetadata) => log('warn', message, metadata),
@@ -51,6 +69,7 @@ export const logger = {
     const error = metaWithError.error;
     if (error) {
       metaWithError.error = extractError(error);
+      captureError(error, metaWithError);
     }
     log('error', message, metaWithError);
   }

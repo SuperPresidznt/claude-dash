@@ -1,6 +1,6 @@
 # Structure Is Grace – Product Roadmap
 
-_Last updated: 2025-11-12_
+_Last updated: 2025-11-20_
 
 ## Vision
 Structure Is Grace becomes the operating system for life: a single workspace that tracks personal finance, schedules, goals, habits, projects, and wellbeing. The app should surface actionable insights, automate cross-tool workflows (calendar, finance, tasks), and provide resilience through clear documentation and observability.
@@ -35,8 +35,8 @@ Structure Is Grace becomes the operating system for life: a single workspace tha
 ## 3. Personal Finance Suite (P0 → P1)
 | Feature | Description | Priority |
 | --- | --- | --- |
-| Cashflow enhancements | Filters (category/date), CSV export, recurring transaction templates | P0 |
-| Budget envelopes | Monthly/quarterly budgets tied to categories, variance chart | P0 |
+| Cashflow enhancements | **Filters, CSV export, recurring transaction templates (shipped 2025-11-20)** | P0 |
+| Budget envelopes | Monthly/quarterly budgets tied to categories, variance chart **(v1 shipped 2025-11-19)** | P0 |
 | Scenario planning | Runway projections, debt payoff calculators, income sensitivity | P1 |
 | Plaid (optional) | Automated bank sync with consent + privacy copy | P2 |
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/server-session';
 import { logger, withUserContext } from '@/lib/logger';
+import { apiHandler } from '@/lib/api-handler';
 
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
@@ -13,7 +14,7 @@ const updateSchema = z.object({
   note: z.string().max(2000).nullable().optional()
 });
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export const PATCH = apiHandler('cashflow.update', async (request, { params }: { params: { id: string } }) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -53,9 +54,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     return NextResponse.json({ message: 'Unable to update cashflow right now.' }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export const DELETE = apiHandler('cashflow.delete', async (_: Request, { params }: { params: { id: string } }) => {
   const user = await requireUser();
   const db = prisma as any;
 
@@ -77,4 +78,4 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
     logger.error('Failed to delete cashflow transaction', withUserContext(user.id, { cashflowId: params.id, error }));
     return NextResponse.json({ message: 'Unable to delete cashflow right now.' }, { status: 500 });
   }
-}
+});

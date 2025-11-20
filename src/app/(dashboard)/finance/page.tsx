@@ -20,6 +20,8 @@ export default async function FinancePage() {
         initialAssets={data.assets}
         initialLiabilities={data.liabilities}
         initialCashflow={data.cashflow}
+        initialTemplates={data.templates}
+        initialBudgets={data.budgets}
         initialSummary={data.summary}
         initialTotals={data.totals}
       />
