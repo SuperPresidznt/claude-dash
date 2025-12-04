@@ -5,6 +5,9 @@ import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
 
 const navItems = [
   { href: '/dashboard', label: 'Today' },
+  { href: '/tasks', label: 'Tasks' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/habits', label: 'Habits' },
   { href: '/journal', label: 'Idea → Action' },
   { href: '/experiments', label: 'Experiments' },
   { href: '/finance', label: 'Finance' },
