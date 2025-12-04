@@ -5,13 +5,17 @@ import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
 
 const navItems = [
   { href: '/dashboard', label: 'Today' },
+  { href: '/focus', label: 'Focus' },
   { href: '/tasks', label: 'Tasks' },
   { href: '/projects', label: 'Projects' },
+  { href: '/okrs', label: 'OKRs' },
   { href: '/habits', label: 'Habits' },
+  { href: '/journal-app', label: 'Journal' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/journal', label: 'Idea → Action' },
   { href: '/experiments', label: 'Experiments' },
   { href: '/finance', label: 'Finance' },
+  { href: '/reviews', label: 'Reviews' },
   { href: '/dashboard/metrics', label: 'Metrics' },
   { href: '/reminders', label: 'Reminders' },
   { href: '/settings', label: 'Settings' }

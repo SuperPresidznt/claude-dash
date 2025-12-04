@@ -55,6 +55,32 @@ enum HabitCadence {
   monthly
 }
 
+enum PomodoroType {
+  work
+  short_break
+  long_break
+}
+
+enum JournalType {
+  reflection
+  am
+  pm
+  custom
+}
+
+enum ObjectiveStatus {
+  active
+  completed
+  cancelled
+}
+
+enum ReviewType {
+  weekly
+  monthly
+  quarterly
+  yearly
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -84,6 +110,12 @@ model User {
   habitCompletions HabitCompletion[]
   calendarSyncs CalendarSync[]
   calendarEvents CalendarEvent[]
+  focusBlocks FocusBlock[]
+  pomodoroSessions PomodoroSession[]
+  journalEntries JournalEntry[]
+  objectives Objective[]
+  keyResults KeyResult[]
+  reviews Review[]
 }
 
 model MacroGoal {
@@ -96,9 +128,10 @@ model MacroGoal {
   isActive         Boolean @default(true)
   notes            String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ideas Idea[]
-  projects Project[]
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ideas      Idea[]
+  projects   Project[]
+  objectives Objective[]
 }
 
 model StartEvent {
@@ -313,9 +346,11 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  macroGoal MacroGoal? @relation(fields: [macroGoalId], references: [id])
-  tasks     Task[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  macroGoal      MacroGoal?      @relation(fields: [macroGoalId], references: [id])
+  tasks          Task[]
+  objectives     Objective[]
+  calendarEvents CalendarEvent[]
 
   @@index([userId])
   @@index([macroGoalId])
@@ -337,8 +372,10 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id])
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project?          @relation(fields: [projectId], references: [id])
+  focusBlocks     FocusBlock[]
+  pomodoroSessions PomodoroSession[]
 
   @@index([userId])
   @@index([projectId])
@@ -403,25 +440,180 @@ model CalendarSync {
 }
 
 model CalendarEvent {
-  id             String   @id @default(cuid())
-  calendarSyncId String
-  userId         String
-  externalId     String   // Google event ID
-  title          String
-  description    String?
-  startTime      DateTime
-  endTime        DateTime
-  isAllDay       Boolean  @default(false)
-  linkedTaskId   String?
-  linkedHabitId  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  calendarSyncId       String
+  userId               String
+  externalId           String   // Google event ID
+  title                String
+  description          String?
+  startTime            DateTime
+  endTime              DateTime
+  isAllDay             Boolean  @default(false)
+  linkedTaskId         String?
+  linkedHabitId        String?
+  linkedProjectId      String?
+  linkedFocusBlockId   String?
+  linkedPomodoroId     String?
+  linkedFinanceIds     String[] // Array of finance entity IDs
+  enrichedData         Json?    // Additional context data
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  calendarSync CalendarSync @relation(fields: [calendarSyncId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarSync       CalendarSync     @relation(fields: [calendarSyncId], references: [id], onDelete: Cascade)
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedProject      Project?         @relation(fields: [linkedProjectId], references: [id])
+  linkedFocusBlock   FocusBlock?      @relation(fields: [linkedFocusBlockId], references: [id])
+  linkedPomodoro     PomodoroSession? @relation(fields: [linkedPomodoroId], references: [id])
 
   @@index([calendarSyncId])
   @@index([userId])
   @@index([startTime])
+  @@index([linkedProjectId])
+  @@index([linkedFocusBlockId])
+  @@index([linkedPomodoroId])
   @@unique([calendarSyncId, externalId])
+}
+
+model FocusBlock {
+  id               String    @id @default(cuid())
+  userId           String
+  taskId           String?
+  title            String
+  description      String?
+  startTime        DateTime
+  endTime          DateTime
+  actualStartTime  DateTime?
+  actualEndTime    DateTime?
+  completed        Boolean   @default(false)
+  calendarEventId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task              Task?             @relation(fields: [taskId], references: [id])
+  pomodoroSessions  PomodoroSession[]
+  calendarEvents    CalendarEvent[]
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([startTime])
+}
+
+model PomodoroSession {
+  id               String       @id @default(cuid())
+  userId           String
+  taskId           String?
+  focusBlockId     String?
+  type             PomodoroType @default(work)
+  durationMinutes  Int          @default(25)
+  startTime        DateTime
+  endTime          DateTime?
+  completed        Boolean      @default(false)
+  interrupted      Boolean      @default(false)
+  note             String?
+  calendarEventId  String?
+  createdAt        DateTime     @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task            Task?           @relation(fields: [taskId], references: [id])
+  focusBlock      FocusBlock?     @relation(fields: [focusBlockId], references: [id])
+  calendarEvents  CalendarEvent[]
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([focusBlockId])
+  @@index([startTime])
+}
+
+model JournalEntry {
+  id              String      @id @default(cuid())
+  userId          String
+  type            JournalType @default(reflection)
+  date            DateTime
+  content         String      @db.Text
+  promptQuestion  String?
+  sentimentScore  Float?      // -1.0 to 1.0
+  sentimentLabel  String?     // negative, neutral, positive
+  tags            String[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([date])
+  @@index([type])
+}
+
+model Objective {
+  id               String          @id @default(cuid())
+  userId           String
+  projectId        String?
+  macroGoalId      String?
+  title            String
+  description      String?
+  quarter          String          // e.g., "Q1 2025"
+  startDate        DateTime
+  endDate          DateTime
+  status           ObjectiveStatus @default(active)
+  confidenceRating Int?            // 0-100%
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?    @relation(fields: [projectId], references: [id])
+  macroGoal  MacroGoal?  @relation(fields: [macroGoalId], references: [id])
+  keyResults KeyResult[]
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([macroGoalId])
+  @@index([quarter])
+}
+
+model KeyResult {
+  id               String   @id @default(cuid())
+  objectiveId      String
+  userId           String
+  title            String
+  description      String?
+  targetValue      Float
+  currentValue     Float    @default(0)
+  unit             String?  // e.g., "dollars", "tasks", "hours"
+  isCompleted      Boolean  @default(false)
+  confidenceRating Int?     // 0-100%
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId])
+  @@index([userId])
+}
+
+model Review {
+  id              String     @id @default(cuid())
+  userId          String
+  type            ReviewType
+  period          String     // e.g., "Week 48 2025", "November 2025"
+  startDate       DateTime
+  endDate         DateTime
+  financeSummary  Json?      // {income, expenses, runway, budgetVariance}
+  taskSummary     Json?      // {completed, total, completionRate}
+  habitSummary    Json?      // {completionRate, topHabits, streaks}
+  journalSummary  Json?      // {entryCount, avgSentiment, sentimentTrend}
+  pomodoroSummary Json?      // {sessionsCompleted, totalMinutes}
+  highlights      String[]
+  lowlights       String[]
+  actionItems     String[]
+  emailSentAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([startDate])
 }

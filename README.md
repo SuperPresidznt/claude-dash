@@ -2,6 +2,19 @@
 
 Structure Is Grace is a dark-mode-first personal operations cockpit built with Next.js 14, TypeScript, Prisma, Tailwind CSS, and PostgreSQL. It captures micro-starts, ideas, study sessions, cash snapshots, routine experiments, reminders, and macro goals—all optimized for keyboard-driven flow.
 
+## New Features (December 2025)
+
+We've implemented 6 major P0 features to enhance productivity and life tracking:
+
+1. **Focus Block Planner** - Timeboxing system for deep work sessions
+2. **Pomodoro Timer** - Productivity timer with calendar sync
+3. **Reflection Journal** - AM/PM journaling with sentiment analysis
+4. **OKR Module** - Quarterly objectives and key results tracking
+5. **Review Wizard** - Automated weekly/monthly review generation
+6. **Calendar Event Enrichment** - Link calendar events with app data
+
+See [docs/P0-FEATURES.md](./docs/P0-FEATURES.md) for detailed documentation.
+
 ## Tech stack
 
 - Next.js 14 (App Router) + React 18
