@@ -49,6 +49,12 @@ enum ProjectStatus {
   cancelled
 }
 
+enum HabitCadence {
+  daily
+  weekly
+  monthly
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -74,6 +80,10 @@ model User {
   reminders Reminder[]
   tasks Task[]
   projects Project[]
+  habits Habit[]
+  habitCompletions HabitCompletion[]
+  calendarSyncs CalendarSync[]
+  calendarEvents CalendarEvent[]
 }
 
 model MacroGoal {
@@ -334,4 +344,84 @@ model Task {
   @@index([projectId])
   @@index([status])
   @@index([dueDate])
+}
+
+model Habit {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  cadence     HabitCadence @default(daily)
+  targetCount Int @default(1) // per cadence period
+  color       String? // hex color for UI
+  icon        String? // icon identifier
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completions HabitCompletion[]
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model HabitCompletion {
+  id        String   @id @default(cuid())
+  habitId   String
+  userId    String
+  date      DateTime @default(now())
+  note      String?
+  createdAt DateTime @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([habitId])
+  @@index([userId])
+  @@index([date])
+  @@unique([habitId, date])
+}
+
+model CalendarSync {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String   @default("google")
+  calendarId  String
+  syncEnabled Boolean  @default(true)
+  lastSyncAt  DateTime?
+  nextSyncAt  DateTime?
+  syncToken   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events CalendarEvent[]
+
+  @@index([userId])
+  @@unique([userId, provider, calendarId])
+}
+
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  calendarSyncId String
+  userId         String
+  externalId     String   // Google event ID
+  title          String
+  description    String?
+  startTime      DateTime
+  endTime        DateTime
+  isAllDay       Boolean  @default(false)
+  linkedTaskId   String?
+  linkedHabitId  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  calendarSync CalendarSync @relation(fields: [calendarSyncId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([calendarSyncId])
+  @@index([userId])
+  @@index([startTime])
+  @@unique([calendarSyncId, externalId])
 }
