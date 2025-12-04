@@ -8,6 +8,7 @@ const navItems = [
   { href: '/tasks', label: 'Tasks' },
   { href: '/projects', label: 'Projects' },
   { href: '/habits', label: 'Habits' },
+  { href: '/calendar', label: 'Calendar' },
   { href: '/journal', label: 'Idea → Action' },
   { href: '/experiments', label: 'Experiments' },
   { href: '/finance', label: 'Finance' },
