@@ -116,6 +116,34 @@ model User {
   objectives Objective[]
   keyResults KeyResult[]
   reviews Review[]
+
+  // Knowledge & Learning
+  resources Resource[]
+  readingSessions ReadingSession[]
+  flashCards FlashCard[]
+
+  // Wellbeing & Health
+  wellbeingCheckIns WellbeingCheckIn[]
+  wearableSyncs WearableSync[]
+  wearableMetrics WearableMetric[]
+  microBreaks MicroBreak[]
+
+  // Social & Accountability
+  accountabilityPartners AccountabilityPartner[]
+  coWorkingSessions CoWorkingSession[]
+  weeklyRecaps WeeklyRecap[]
+
+  // Automation & Intelligence
+  automationRules AutomationRule[]
+  ruleExecutionLogs RuleExecutionLog[]
+  aiCopilotConversations AICopilotConversation[]
+  nlCaptures NLCapture[]
+
+  // Plaid Integration
+  plaidConnections PlaidConnection[]
+  plaidAccounts PlaidAccount[]
+  plaidTransactions PlaidTransaction[]
+  plaidSyncLogs PlaidSyncLog[]
 }
 
 model MacroGoal {
@@ -616,4 +644,501 @@ model Review {
   @@index([userId])
   @@index([type])
   @@index([startDate])
+}
+
+// ========== KNOWLEDGE & LEARNING MODELS ==========
+
+enum ResourceType {
+  article
+  video
+  book
+  podcast
+  course
+  other
+}
+
+enum FlashCardStatus {
+  new
+  learning
+  review
+  mastered
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  userId      String
+  title       String
+  url         String?
+  type        ResourceType @default(article)
+  category    String?
+  description String?      @db.Text
+  macroGoalId String?
+  projectId   String?
+  tags        String[]
+  isFavorite  Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readingSessions ReadingSession[]
+  flashCards    FlashCard[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([macroGoalId])
+  @@index([projectId])
+}
+
+model ReadingSession {
+  id          String   @id @default(cuid())
+  userId      String
+  resourceId  String
+  startTime   DateTime
+  endTime     DateTime
+  minutes     Int
+  progress    Float?   @default(0) // 0-100%
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([resourceId])
+  @@index([startTime])
+}
+
+model FlashCard {
+  id              String          @id @default(cuid())
+  userId          String
+  resourceId      String?
+  front           String          @db.Text
+  back            String          @db.Text
+  status          FlashCardStatus @default(new)
+  easeFactor      Float           @default(2.5)
+  interval        Int             @default(0) // Days until next review
+  repetitions     Int             @default(0)
+  lastReviewedAt  DateTime?
+  nextReviewAt    DateTime
+  tags            String[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource Resource? @relation(fields: [resourceId], references: [id])
+
+  @@index([userId])
+  @@index([resourceId])
+  @@index([nextReviewAt])
+  @@index([status])
+}
+
+// ========== WELLBEING & HEALTH MODELS ==========
+
+enum MoodLevel {
+  very_low
+  low
+  neutral
+  good
+  excellent
+}
+
+enum EnergyLevel {
+  exhausted
+  low
+  moderate
+  high
+  energized
+}
+
+enum WearableProvider {
+  apple_health
+  google_fit
+  fitbit
+  garmin
+}
+
+model WellbeingCheckIn {
+  id              String       @id @default(cuid())
+  userId          String
+  date            DateTime
+  sleepHours      Float?
+  sleepQuality    Int?         // 1-10 scale
+  mood            MoodLevel?
+  energy          EnergyLevel?
+  stressLevel     Int?         // 1-10 scale
+  physicalHealth  Int?         // 1-10 scale
+  notes           String?      @db.Text
+  createdAt       DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date])
+}
+
+model WearableSync {
+  id            String            @id @default(cuid())
+  userId        String
+  provider      WearableProvider
+  isEnabled     Boolean           @default(true)
+  lastSyncAt    DateTime?
+  syncToken     String?           @db.Text
+  encryptedAuth String?           @db.Text // Encrypted credentials
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metrics  WearableMetric[]
+
+  @@index([userId])
+  @@unique([userId, provider])
+}
+
+model WearableMetric {
+  id             String   @id @default(cuid())
+  wearableSyncId String
+  userId         String
+  date           DateTime
+  steps          Int?
+  activeMinutes  Int?
+  caloriesBurned Int?
+  heartRateAvg   Int?
+  heartRateMax   Int?
+  heartRateMin   Int?
+  distance       Float?   // in kilometers
+  workoutMinutes Int?
+  rawData        Json?    // Full payload from provider
+  createdAt      DateTime @default(now())
+
+  wearableSync WearableSync @relation(fields: [wearableSyncId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([wearableSyncId])
+  @@index([date])
+  @@unique([wearableSyncId, date])
+}
+
+model MicroBreak {
+  id          String   @id @default(cuid())
+  userId      String
+  scheduledAt DateTime
+  completedAt DateTime?
+  type        String   @default("mindful") // mindful, stretch, walk, etc.
+  duration    Int      @default(5) // minutes
+  note        String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([scheduledAt])
+}
+
+// ========== SOCIAL & ACCOUNTABILITY MODELS ==========
+
+enum PartnershipStatus {
+  pending
+  active
+  paused
+  ended
+}
+
+enum SharePermission {
+  dashboard_view
+  finance_summary
+  goals_view
+  habits_view
+  tasks_view
+  full_access
+}
+
+model AccountabilityPartner {
+  id              String            @id @default(cuid())
+  userId          String            // The user who owns this partnership
+  partnerEmail    String
+  partnerUserId   String?           // If partner has joined
+  status          PartnershipStatus @default(pending)
+  permissions     SharePermission[]
+  invitedAt       DateTime          @default(now())
+  acceptedAt      DateTime?
+  lastContactAt   DateTime?
+  notes           String?           @db.Text
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([partnerEmail])
+  @@index([status])
+}
+
+model CoWorkingSession {
+  id              String   @id @default(cuid())
+  hostUserId      String
+  title           String
+  description     String?  @db.Text
+  scheduledStart  DateTime
+  scheduledEnd    DateTime
+  actualStartTime DateTime?
+  actualEndTime   DateTime?
+  calendarEventId String?
+  inviteLink      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  host         User                       @relation(fields: [hostUserId], references: [id], onDelete: Cascade)
+  participants CoWorkingSessionParticipant[]
+
+  @@index([hostUserId])
+  @@index([scheduledStart])
+}
+
+model CoWorkingSessionParticipant {
+  id                 String   @id @default(cuid())
+  coWorkingSessionId String
+  userId             String?  // Null if external participant
+  email              String?
+  joinedAt           DateTime?
+  leftAt             DateTime?
+  focusMinutes       Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  coWorkingSession CoWorkingSession @relation(fields: [coWorkingSessionId], references: [id], onDelete: Cascade)
+
+  @@index([coWorkingSessionId])
+  @@index([userId])
+}
+
+model WeeklyRecap {
+  id              String   @id @default(cuid())
+  userId          String
+  weekStart       DateTime
+  weekEnd         DateTime
+  generatedAt     DateTime @default(now())
+  emailSentAt     DateTime?
+  content         Json     // Full recap data
+  sharedWithIds   String[] // Partner user IDs
+  viewCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([weekStart])
+}
+
+// ========== AUTOMATION & INTELLIGENCE MODELS ==========
+
+enum RuleConditionType {
+  runway_low
+  habit_streak_broken
+  budget_exceeded
+  task_overdue
+  goal_progress_stalled
+  wellbeing_declining
+  custom
+}
+
+enum RuleActionType {
+  send_alert
+  create_task
+  schedule_review
+  send_email
+  trigger_webhook
+  custom
+}
+
+model AutomationRule {
+  id               String            @id @default(cuid())
+  userId           String
+  name             String
+  description      String?           @db.Text
+  conditionType    RuleConditionType
+  conditionConfig  Json              // e.g., {threshold: 3, unit: "months"}
+  actionType       RuleActionType
+  actionConfig     Json              // e.g., {taskTitle: "Review finances", priority: "high"}
+  isEnabled        Boolean           @default(true)
+  lastTriggeredAt  DateTime?
+  triggerCount     Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executionLogs RuleExecutionLog[]
+
+  @@index([userId])
+  @@index([isEnabled])
+  @@index([conditionType])
+}
+
+model RuleExecutionLog {
+  id        String   @id @default(cuid())
+  ruleId    String
+  userId    String
+  triggeredAt DateTime @default(now())
+  success   Boolean
+  result    Json?    // Details of what happened
+  error     String?  @db.Text
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([userId])
+  @@index([triggeredAt])
+}
+
+model AICopilotConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  messages  Json     // Array of {role, content, timestamp}
+  context   Json?    // Relevant data passed to AI
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model NLCapture {
+  id          String   @id @default(cuid())
+  userId      String
+  rawInput    String   @db.Text
+  parsedData  Json     // Extracted entities (amount, date, category, etc.)
+  entityType  String?  // cashflow, task, habit, etc.
+  entityId    String?  // ID of created entity
+  confidence  Float?   // 0-1 score from NLP
+  isProcessed Boolean  @default(false)
+  error       String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isProcessed])
+  @@index([createdAt])
+}
+
+// ========== PLAID INTEGRATION MODELS ==========
+
+enum PlaidAccountType {
+  checking
+  savings
+  credit_card
+  investment
+  loan
+  other
+}
+
+enum PlaidSyncStatus {
+  healthy
+  requires_update
+  error
+}
+
+model PlaidConnection {
+  id                String          @id @default(cuid())
+  userId            String
+  plaidItemId       String          @unique
+  plaidAccessToken  String          @db.Text // Encrypted
+  institutionId     String
+  institutionName   String
+  isEnabled         Boolean         @default(true)
+  syncStatus        PlaidSyncStatus @default(healthy)
+  lastSyncAt        DateTime?
+  consentGivenAt    DateTime
+  consentRevokedAt  DateTime?
+  cursor            String?         // For incremental sync
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts         PlaidAccount[]
+  syncLogs         PlaidSyncLog[]
+
+  @@index([userId])
+  @@index([plaidItemId])
+}
+
+model PlaidAccount {
+  id                  String           @id @default(cuid())
+  plaidConnectionId   String
+  userId              String
+  plaidAccountId      String           @unique
+  name                String
+  officialName        String?
+  type                PlaidAccountType
+  subtype             String?
+  mask                String?          // Last 4 digits
+  currentBalanceCents Int?
+  availableBalanceCents Int?
+  creditLimitCents    Int?
+  isoCurrencyCode     String           @default("USD")
+  lastBalanceUpdate   DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  plaidConnection PlaidConnection     @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions    PlaidTransaction[]
+
+  @@index([plaidConnectionId])
+  @@index([userId])
+  @@index([plaidAccountId])
+}
+
+model PlaidTransaction {
+  id                  String   @id @default(cuid())
+  plaidAccountId      String
+  userId              String
+  plaidTransactionId  String   @unique
+  date                DateTime
+  authorizedDate      DateTime?
+  name                String
+  merchantName        String?
+  amountCents         Int
+  isoCurrencyCode     String   @default("USD")
+  category            String[] // Plaid's category hierarchy
+  pending             Boolean  @default(false)
+  categoryId          String?  // Plaid category ID
+  linkedCashflowTxnId String?  // Link to our CashflowTxn if imported
+  isHidden            Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  plaidAccount PlaidAccount @relation(fields: [plaidAccountId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([plaidAccountId])
+  @@index([userId])
+  @@index([date])
+  @@index([pending])
+}
+
+model PlaidSyncLog {
+  id                String   @id @default(cuid())
+  plaidConnectionId String
+  userId            String
+  syncStartedAt     DateTime @default(now())
+  syncCompletedAt   DateTime?
+  success           Boolean
+  transactionsAdded Int      @default(0)
+  transactionsModified Int   @default(0)
+  transactionsRemoved Int    @default(0)
+  error             String?  @db.Text
+  createdAt         DateTime @default(now())
+
+  plaidConnection PlaidConnection @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([plaidConnectionId])
+  @@index([userId])
+  @@index([syncStartedAt])
 }
